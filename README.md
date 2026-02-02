@@ -7,3 +7,4 @@ The Smart Urban Mobility Management System (SUMMS) is a conceptual, integrated d
  - Katerina D’Ambrosio (40281139)
  - Shayan Javanmardi (40299147)
  - Yan Znaty (40284722)
+ - Kourosh Fadaei N. (40289423)
