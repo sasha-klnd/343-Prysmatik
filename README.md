@@ -8,3 +8,15 @@ The Smart Urban Mobility Management System (SUMMS) is a conceptual, integrated d
  - Shayan Javanmardi (40299147)
  - Yan Znaty (40284722)
  - Kourosh Fadaei N. (40289423)
+
+
+
+
+## Running the code (the UI design)
+
+  Run `npm i` to install the dependencies. (Install npm if u don't have it)
+
+  Run `npm run dev` to start the development server.
+  
+  If you want to see it on your phone (or all devices connected to the same network as ur laptop) : 
+  run 'npm run dev -- --host
