@@ -12,7 +12,7 @@ The Smart Urban Mobility Management System (SUMMS) is a conceptual, integrated d
 
 
 
-## Running the code (the UI design)
+## Running the code
 
 Note : 
 Open two terminals, one for the frontend, the other one for the backend.
