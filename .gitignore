@@ -1,0 +1,43 @@
+# ---x-----------------
+# Python / Flask
+# --------------------
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+instance/
+.env
+.env.*
+*.db
+*.sqlite3
+
+# --------------------
+# Node / React / Vite
+# --------------------
+node_modules/
+dist/
+build/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --------------------
+# OS files
+# --------------------
+.DS_Store
+Thumbs.db
+
+# --------------------
+# IDE
+# --------------------
+.vscode/
+.idea/
+
+# --------------------
+# Misc
+# --------------------
+coverage/
+*.swp

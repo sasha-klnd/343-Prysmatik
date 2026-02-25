@@ -1,0 +1,40 @@
+Wednesday Feb 25 2026: 
+
+User account creation --> DONE
+User prefernecies --> DONE
+
+To Do :
+
+When user is logged in, there is an option in the navbar "My Rides", 
+user that offered the rides can see : the rides he's offering, the user that requested his 
+rides (and their information, but NO CONTACT information of those users, so they could cut deals 
+without the platform....), CTAs to delete a ride, modify a ride, Approve a user for the ride request 
+(the number of the seats available should be updated, if resepected --> minus 1, if rejected, unchanged), 
+Reject a user for the ride request (if no action is taken from the user offering a ride, the ride request 
+is auto-rejected after 24 hours). The user that requested a ride can see : rides that he requested, status of 
+his request (approved vs rejected), cancel a request, information about the user offering the ride 
+(HOWEVER NO CONTACT INFORMATION). In addition, when a user request a ride, the user offering that 
+ride should recieve an email (SMTP) saying that a user requested that ride. And once the user offering 
+the ride reject or approve a user for the ride, the user requesting it should be notified by email too (SMTP).
+
+
+Everything is working. DONE
+
+Bugs :
+When creating a ride, "Number of seats" don't update correctly. FIXED
+On the My Rides screen, the number of requests don't update until user clicks on "View Requests". FIXED
+User shouldn't be able to offer a ride in the past. FIXED
+When ride is cancelled, the number of seats should be updated.
+
+To Do : 
+Implement the SMTP notification. DONE
+Make the Desination and Departure fields a searchable field, where user have to select exactly an option.
+Think of a policy for cancelation : 
+    - What shuold happen when user (offering or requesting) cancel a ride?
+    - Penalty?
+
+
+To initalize db :
+flask --app run.py db init
+flask --app run.py db migrate -m "init"
+flask --app run.py db upgrade
