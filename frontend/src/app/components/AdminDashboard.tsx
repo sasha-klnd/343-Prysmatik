@@ -7,7 +7,8 @@ import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
-import { apiFetch } from '@/api/client';
+import { apiFetch, getAdminToken, clearAdminToken } from '@/api/client';
+import { timeAgoMtl } from './timeUtils';
 
 interface AdminDashboardProps {
   onBack: () => void;
@@ -56,13 +57,7 @@ function fmtEventType(t: string) {
   return EVENT_LABELS[t] || t.replace(/_/g, ' ');
 }
 
-function timeAgo(iso: string): string {
-  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (secs < 60)    return `${secs}s ago`;
-  if (secs < 3600)  return `${Math.floor(secs / 60)}m ago`;
-  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
-  return `${Math.floor(secs / 86400)}d ago`;
-}
+
 
 export function AdminDashboard({ onBack }: AdminDashboardProps) {
   const [summary,  setSummary]  = useState<Summary | null>(null);
@@ -78,10 +73,10 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
     setError(null);
     try {
       const [sum, ev, dailyRides, svc] = await Promise.all([
-        apiFetch('/analytics/summary'),
-        apiFetch('/analytics/events'),
-        apiFetch('/analytics/rides/daily?days=7'),
-        apiFetch('/analytics/mobility/services'),
+        apiFetch('/analytics/summary', {}, true),
+        apiFetch('/analytics/events', {}, true),
+        apiFetch('/analytics/rides/daily?days=7', {}, true),
+        apiFetch('/analytics/mobility/services', {}, true),
       ]);
       setSummary(sum);
       setEvents(ev);
@@ -182,7 +177,7 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
             <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
               <Calendar className="w-5 h-5 text-indigo-400" /> Rides created — last 7 days
             </h3>
-            <ResponsiveContainer width="100%" height={260}>
+            <ResponsiveContainer width="100%" height={220}>
               <BarChart data={daily.length ? daily : Array(7).fill({ date: '—', rides: 0 })}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                 <XAxis dataKey="date" stroke="#6b7280" tick={{ fontSize: 11 }} tickFormatter={d => d.slice(5)} />
@@ -199,10 +194,19 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
               <CheckCircle className="w-5 h-5 text-emerald-400" /> Booking status distribution
             </h3>
             {bookingPieData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={260}>
+              <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
                   <Pie data={bookingPieData} cx="50%" cy="50%" outerRadius={95} labelLine={false}
-                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`} dataKey="value">
+                    label={({ name, percent, x, y, midAngle }) => {
+                      const RADIAN = Math.PI / 180;
+                      const radius = 115;
+                      const cx = 0; const cy = 0; // recharts centers at 50%/50%
+                      return (
+                        <text x={x} y={y} fill="#e5e7eb" textAnchor={x > 0 ? "start" : "end"} dominantBaseline="central" fontSize={11}>
+                          {`${name}: ${(percent * 100).toFixed(0)}%`}
+                        </text>
+                      );
+                    }} dataKey="value">
                     {bookingPieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                   </Pie>
                   <Tooltip contentStyle={{ backgroundColor: 'rgba(20,21,24,.95)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 12, color: '#fff' }} />
@@ -226,7 +230,7 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
               <Zap className="w-5 h-5 text-purple-400" /> Event breakdown (Observer log)
             </h3>
             {eventBarData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={260}>
+              <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={eventBarData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                   <XAxis type="number" stroke="#6b7280" tick={{ fontSize: 11 }} allowDecimals={false} />
@@ -276,7 +280,7 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
           <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
             <Clock className="w-5 h-5 text-indigo-400" /> Recent system activity
           </h3>
-          <div className="space-y-2">
+          <div className="space-y-2 overflow-x-auto">
             {loading ? <div className="text-sm text-gray-500">Loading…</div>
               : events?.recent?.length ? events.recent.slice(0, 12).map(ev => {
                 const gradMap: Record<string, string> = {
@@ -294,7 +298,7 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
                       <span className="text-sm text-gray-200">{fmtEventType(ev.event_type)}</span>
                       {ev.user_id && <span className="text-xs text-gray-500 ml-2">user #{ev.user_id}</span>}
                     </div>
-                    <div className="text-xs text-gray-500 shrink-0">{timeAgo(ev.created_at)}</div>
+                    <div className="text-xs text-gray-500 shrink-0">{timeAgoMtl(ev.created_at)}</div>
                   </div>
                 );
               })

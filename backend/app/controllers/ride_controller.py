@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger(__name__)
 from datetime import datetime, timedelta
 from flask import Blueprint, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -7,6 +9,14 @@ from ..utils.responses import ok, fail
 from ..utils.emailer import send_email
 from ..utils.email_templates import urbix_email_html
 from ..services.event_bus import EventBus
+from ..services.push_service import (
+    notify_booking_approved, notify_booking_rejected,
+    notify_booking_cancelled, notify_new_request,
+)
+from ..models.trip import Trip
+from ..services.co2_service import CO2Calculator
+from ..services.cost_service import CostCalculator
+from ..utils.geocoding import distance_between
 
 ride_bp = Blueprint("rides", __name__)
 
@@ -81,7 +91,7 @@ def auto_reject_expired_requests():
                 html=html,
             )
         except Exception as e:
-            print("[EMAIL] failed:", e)
+            logger.warning("[EMAIL] send failed: %s", e)
 
     db.session.commit()
 
@@ -124,6 +134,18 @@ def list_rides():
 
     rides = q.order_by(RidePost.departure_datetime.asc()).limit(50).all()
     return ok([r.to_dict() for r in rides])
+
+
+# --------------------------
+# Get single ride (public)
+# --------------------------
+@ride_bp.get("/<int:ride_id>")
+def get_ride(ride_id: int):
+    # Return a single ride live data — used by frontend to refresh stale chat suggestions.
+    ride = RidePost.query.get(ride_id)
+    if not ride:
+        return fail("Ride not found", 404)
+    return ok(ride.to_dict())
 
 
 # --------------------------
@@ -323,7 +345,7 @@ def delete_ride(ride_id: int):
                     html=html,
                 )
             except Exception as e:
-                print("[EMAIL] failed:", e)
+                logger.warning("[EMAIL] send failed: %s", e)
 
     db.session.delete(ride)
     db.session.commit()
@@ -355,8 +377,15 @@ def request_ride(ride_id: int):
     existing = CarpoolBooking.query.filter_by(
         ride_post_id=ride.id, passenger_user_id=passenger.id
     ).first()
-    if existing and existing.status in ("PENDING", "ACCEPTED"):
-        return fail("You already have a booking for this ride", 409)
+    if existing:
+        # Block re-requests for ANY prior status — a user gets one shot per ride.
+        msg_map = {
+            "PENDING":   "You already have a pending request for this ride.",
+            "ACCEPTED":  "You are already confirmed on this ride.",
+            "REJECTED":  "Your previous request for this ride was rejected.",
+            "CANCELLED": "You previously cancelled your request for this ride.",
+        }
+        return fail(msg_map.get(existing.status, "You already requested this ride."), 409)
 
     data = request.get_json(silent=True) or {}
 
@@ -390,6 +419,13 @@ def request_ride(ride_id: int):
     db.session.commit()
     EventBus.publish("booking_created", user_id=passenger.id, metadata={"booking_id": booking.id, "ride_id": ride.id})
 
+    # Push notification to driver
+    try:
+        if ride.creator and ride.creator.fcm_token:
+            notify_new_request(ride.creator.fcm_token, ride.departure, ride.destination, passenger.full_name)
+    except Exception as _exc:
+        logger.warning("Push (new request) failed: %s", _exc)
+
     # Email driver about the request
     try:
         text = (
@@ -414,7 +450,7 @@ def request_ride(ride_id: int):
             html=html,
         )
     except Exception as e:
-        print("[EMAIL] failed:", e)
+        logger.warning("[EMAIL] send failed: %s", e)
 
     return ok(booking.to_dict(), 201)
 
@@ -481,6 +517,44 @@ def approve_request(booking_id: int):
     db.session.commit()
     EventBus.publish("booking_approved", user_id=driver.id, metadata={"booking_id": booking.id, "ride_id": ride.id})
 
+    # Push notification to passenger
+    try:
+        if booking.passenger and booking.passenger.fcm_token:
+            notify_booking_approved(booking.passenger.fcm_token, ride.departure, ride.destination)
+    except Exception as _exc:
+        logger.warning("Push (approved) failed: %s", _exc)
+
+    # Auto-log trip for both driver and passenger with real distance
+    try:
+        dist_km = distance_between(ride.departure, ride.destination)
+        if dist_km and dist_km > 0:
+            # Estimate occupants = accepted bookings + driver
+            occupants = CarpoolBooking.query.filter_by(
+                ride_post_id=ride.id, status="ACCEPTED"
+            ).count() + 1  # +1 for driver
+
+            # Log for passenger
+            passenger_trip = Trip(
+                user_id=booking.passenger_user_id,
+                mode="carpool",
+                distance_km=dist_km,
+                note=f"{ride.departure} → {ride.destination}",
+                booking_id=booking.id,
+            )
+            # Log for driver
+            driver_trip = Trip(
+                user_id=driver.id,
+                mode="carpool",
+                distance_km=dist_km,
+                note=f"{ride.departure} → {ride.destination} (driver)",
+            )
+            db.session.add(passenger_trip)
+            db.session.add(driver_trip)
+            db.session.commit()
+            logger.info("Auto-logged carpool trip: %.1f km for users %s and %s", dist_km, booking.passenger_user_id, driver.id)
+    except Exception as exc:
+        logger.warning("Auto trip logging failed: %s", exc)
+
     # Email passenger
     try:
         text = (
@@ -504,7 +578,7 @@ def approve_request(booking_id: int):
             html=html,
         )
     except Exception as e:
-        print("[EMAIL] failed:", e)
+        logger.warning("[EMAIL] send failed: %s", e)
 
     return ok({"booking": booking.to_dict(), "ride": ride.to_dict()})
 
@@ -534,6 +608,13 @@ def reject_request(booking_id: int):
     db.session.commit()
     EventBus.publish("booking_rejected", user_id=driver.id, metadata={"booking_id": booking.id, "ride_id": ride.id})
 
+    # Push notification to passenger
+    try:
+        if booking.passenger and booking.passenger.fcm_token:
+            notify_booking_rejected(booking.passenger.fcm_token, ride.departure, ride.destination)
+    except Exception as _exc:
+        logger.warning("Push (rejected) failed: %s", _exc)
+
     try:
         text = (
             f"Your request was rejected for {ride.departure} → {ride.destination} "
@@ -556,7 +637,7 @@ def reject_request(booking_id: int):
             html=html,
         )
     except Exception as e:
-        print("[EMAIL] failed:", e)
+        logger.warning("[EMAIL] send failed: %s", e)
 
     return ok(booking.to_dict())
 
@@ -635,7 +716,7 @@ def cancel_request(booking_id: int):
             html=html,
         )
     except Exception as e:
-        print("[EMAIL] failed:", e)
+        logger.warning("[EMAIL] send failed: %s", e)
 
     return ok({"cancelled": True, "booking": booking.to_dict(), "ride": ride.to_dict()})
 

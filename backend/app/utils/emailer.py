@@ -7,7 +7,7 @@ def send_email(to_email: str, subject: str, body: str, *, html: str | None = Non
     host = os.getenv("SMTP_HOST")
     port = int(os.getenv("SMTP_PORT", "587"))
     username = os.getenv("SMTP_USER")
-    password = os.getenv("SMTP_PASS")
+    password = (os.getenv("SMTP_PASS") or "").replace(" ", "").replace("\t", "") or None
     from_email = os.getenv("SMTP_FROM", username)
 
     if not host or not username or not password or not from_email:

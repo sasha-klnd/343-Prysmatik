@@ -8,6 +8,7 @@ Uses the BixiService Singleton to read from cache or the GBFS API.
 from flask import Blueprint, request
 from ..services.bixi_service import BixiService
 from ..utils.responses import ok, fail
+from ..utils.geocoding import haversine_km as _haversine_km
 
 bixi_bp = Blueprint("bixi", __name__)
 
@@ -94,21 +95,7 @@ def refresh_stations():
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
-
-def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Great-circle distance in km between two lat/lon points."""
-    import math
-    R = 6371.0
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1))
-        * math.cos(math.radians(lat2))
-        * math.sin(dlon / 2) ** 2
-    )
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
+# _haversine_km is imported from utils.geocoding above — no local copy needed.
 
 def _filter_by_proximity(
     stations: list[dict],

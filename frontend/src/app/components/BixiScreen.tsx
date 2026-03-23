@@ -164,7 +164,7 @@ export function BixiScreen({ onBack, isAuthenticated = false, onRequireAuth = ()
       <div className="max-w-6xl mx-auto px-6 py-6">
 
         {/* Summary cards */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           {[
             { label: 'Stations',        value: stations.length, color: 'from-emerald-600 to-green-600' },
             { label: 'Bikes available', value: totalBikes,      color: 'from-green-600 to-teal-600'    },
@@ -181,7 +181,7 @@ export function BixiScreen({ onBack, isAuthenticated = false, onRequireAuth = ()
 
         {/* Filters */}
         <div className="flex flex-wrap gap-3 mb-5">
-          <div className="flex-1 min-w-[180px] relative">
+          <div className="flex-1 min-w-0 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input className="w-full pl-9 pr-3 py-2 bg-white/5 border border-white/10 rounded-xl text-sm placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
               placeholder="Search station..." value={search} onChange={e => setSearch(e.target.value)} />

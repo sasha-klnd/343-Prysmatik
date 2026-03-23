@@ -13,6 +13,7 @@ import {
     X,
 } from 'lucide-react';
 import { apiFetch } from '@/api/client';
+import { fmtDate as formatDate, fmtTime as formatTime, fmtDateTime, timeAgoMtl } from './timeUtils';
 
 interface MyRidesScreenProps {
     onBack: () => void;
@@ -54,16 +55,7 @@ type RequestedItem = {
     ride: Ride;
 };
 
-function formatDate(dtIso: string) {
-    const d = new Date(dtIso);
-    // YYYY-MM-DD
-    return d.toISOString().slice(0, 10);
-}
 
-function formatTime(dtIso: string) {
-    const d = new Date(dtIso);
-    return d.toTimeString().slice(0, 5);
-}
 
 export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRidesScreenProps) {
     const [activeTab, setActiveTab] = useState<'offering' | 'requested'>('offering');
@@ -79,6 +71,10 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
 
     const [showToast, setShowToast] = useState(false);
     const [toastMessage, setToastMessage] = useState('');
+    // Rating: bookingId → stars hovered/selected
+    const [ratingMap, setRatingMap] = useState<Record<number, number>>({});
+    const [ratingHover, setRatingHover] = useState<Record<number, number>>({});
+    const [ratedBookings, setRatedBookings] = useState<Set<number>>(new Set());
 
     const [editingRide, setEditingRide] = useState<Ride | null>(null);
     const [editForm, setEditForm] = useState({
@@ -181,7 +177,7 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
         }
         // collapse requests when switching tabs
         setExpandedRideId(null);
-    }, [activeTab]);
+    }, [activeTab, isAuthenticated]);
 
     const openEdit = (ride: Ride) => {
         setEditingRide(ride);
@@ -294,6 +290,20 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
         }
     };
 
+    const submitRating = async (bookingId: number, stars: number, driverName: string) => {
+        if (!isAuthenticated) { onRequireAuth('rate a driver'); return; }
+        try {
+            await apiFetch('/ratings', {
+                method: 'POST',
+                body: JSON.stringify({ booking_id: bookingId, stars }),
+            });
+            setRatedBookings(prev => new Set([...prev, bookingId]));
+            showToastMsg(`⭐ Thanks for rating ${driverName}!`);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to submit rating');
+        }
+    };
+
     const offeredEmpty = useMemo(
         () => !loading && !error && offeredRides.length === 0,
         [loading, error, offeredRides.length]
@@ -354,7 +364,7 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
             )}
 
             {/* Header */}
-            <div className="glass-effect border-b border-white/10 p-6 backdrop-blur-2xl sticky top-0 z-40">
+            <div className="glass-effect border-b border-white/10 p-4 lg:p-6 backdrop-blur-2xl sticky top-0 z-40">
                 <div className="max-w-6xl mx-auto">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
@@ -385,7 +395,7 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
             </div>
 
             {/* Tabs */}
-            <div className="max-w-6xl mx-auto px-6 mt-6">
+            <div className="max-w-6xl mx-auto px-4 lg:px-6 mt-4">
                 <div className="glass-effect rounded-2xl p-2 inline-flex gap-2 border border-white/10">
                     <button
                         onClick={() => setActiveTab('offering')}
@@ -410,7 +420,7 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
 
             {/* Error */}
             {error && (
-                <div className="max-w-6xl mx-auto px-6 mt-6">
+                <div className="max-w-6xl mx-auto px-4 lg:px-6 mt-4">
                     <div className="glass-effect rounded-2xl p-4 border border-red-500/20 text-red-200 flex items-center gap-3">
                         <AlertCircle className="w-5 h-5" />
                         <p className="text-sm">{error}</p>
@@ -419,7 +429,7 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
             )}
 
             {/* Content */}
-            <div className="max-w-6xl mx-auto px-6 mt-6">
+            <div className="max-w-6xl mx-auto px-4 lg:px-6 mt-4">
                 {activeTab === 'offering' ? (
                     <div className="space-y-6">
                         {offeredEmpty ? (
@@ -435,8 +445,8 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
                                 const isExpanded = expandedRideId === ride.id;
 
                                 return (
-                                    <div key={ride.id} className="glass-effect rounded-2xl p-6 border border-white/10 shadow-xl">
-                                        <div className="flex items-start justify-between mb-6">
+                                    <div key={ride.id} className="glass-effect rounded-2xl p-4 lg:p-6 border border-white/10 shadow-xl">
+                                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-3 mb-3">
                                                     <MapPin className="w-5 h-5 text-indigo-400" />
@@ -516,7 +526,7 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
                                                                 </div>
                                                                 <p className="text-xs text-gray-400 mt-1">Seats requested: {req.seats_requested}</p>
                                                                 <p className="text-xs text-gray-500 mt-1">
-                                                                    Requested at: {new Date(req.created_at).toLocaleString()}
+                                                                    Requested at: {fmtDateTime(req.created_at)}
                                                                 </p>
                                                             </div>
 
@@ -560,7 +570,7 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
                                 const ride = item.ride;
                                 const booking = item.booking;
                                 return (
-                                    <div key={booking.id} className="glass-effect rounded-2xl p-6 border border-white/10 shadow-xl">
+                                    <div key={booking.id} className="glass-effect rounded-2xl p-4 lg:p-6 border border-white/10 shadow-xl">
                                         <div className="flex items-start justify-between">
                                             <div>
                                                 <div className="flex items-center gap-3 mb-2">
@@ -590,7 +600,8 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
                                                 </p>
                                             </div>
 
-                                            {(booking.status === 'PENDING' || booking.status === 'ACCEPTED') ? (
+                                            <div className="flex flex-col items-end gap-2 shrink-0">
+                                              {(booking.status === 'PENDING' || booking.status === 'ACCEPTED') && (
                                                 <button
                                                     onClick={() => cancelRequest(booking.id)}
                                                     className="px-4 py-2 rounded-xl bg-gray-600/20 border border-white/10 text-gray-200 hover:bg-white/5 text-sm flex items-center gap-2"
@@ -598,9 +609,34 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
                                                     <X className="w-4 h-4" />
                                                     Cancel
                                                 </button>
-                                            ) : (
-                                                <div className="text-xs text-gray-400">No actions</div>
-                                            )}
+                                              )}
+                                              {booking.status === 'ACCEPTED' && !ratedBookings.has(booking.id) && (
+                                                <div className="flex flex-col items-end gap-1">
+                                                  <p className="text-[10px] text-gray-500">Rate driver</p>
+                                                  <div className="flex gap-0.5">
+                                                    {[1,2,3,4,5].map(star => (
+                                                      <button
+                                                        key={star}
+                                                        onMouseEnter={() => setRatingHover(p => ({...p, [booking.id]: star}))}
+                                                        onMouseLeave={() => setRatingHover(p => ({...p, [booking.id]: 0}))}
+                                                        onClick={() => {
+                                                          setRatingMap(p => ({...p, [booking.id]: star}));
+                                                          submitRating(booking.id, star, ride.creator.name);
+                                                        }}
+                                                        className="text-xl leading-none transition-transform hover:scale-125"
+                                                      >
+                                                        <span style={{color: star <= (ratingHover[booking.id] || ratingMap[booking.id] || 0) ? '#f59e0b' : '#374151'}}>
+                                                          ★
+                                                        </span>
+                                                      </button>
+                                                    ))}
+                                                  </div>
+                                                </div>
+                                              )}
+                                              {ratedBookings.has(booking.id) && (
+                                                <span className="text-xs text-amber-400">⭐ Rated!</span>
+                                              )}
+                                            </div>
                                         </div>
                                     </div>
                                 );
@@ -613,7 +649,7 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
             {/* Edit modal */}
             {editingRide && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-                    <div className="w-full max-w-xl glass-effect border border-white/10 rounded-2xl p-6 shadow-2xl">
+                    <div className="w-full max-w-lg glass-effect border border-white/10 rounded-2xl p-5 shadow-2xl mx-4">
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-bold text-white">Edit Ride</h3>
                             <button

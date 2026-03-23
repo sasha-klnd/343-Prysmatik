@@ -10,9 +10,11 @@ interface ProfileScreenProps {
   userData?: { name: string; email: string } | null;
   isAuthenticated?: boolean;
   onRequireAuth?: (action: string) => void;
+  /** Called with the saved prefs object right after a successful PUT /users/me/preferences */
+  onPreferencesSaved?: (prefs: any) => void;
 }
 
-export function ProfileScreen({ onBack, onLogout, userData, isAuthenticated = false, onRequireAuth }: ProfileScreenProps) {
+export function ProfileScreen({ onBack, onLogout, userData, isAuthenticated = false, onRequireAuth, onPreferencesSaved }: ProfileScreenProps) {
   const [maxWalkingTime, setMaxWalkingTime] = useState(15);
   const [budgetSensitivity, setBudgetSensitivity] = useState(50);
   const [preferredModes, setPreferredModes] = useState({
@@ -45,6 +47,7 @@ export function ProfileScreen({ onBack, onLogout, userData, isAuthenticated = fa
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Load saved preferences when authenticated
   useEffect(() => {
@@ -61,11 +64,10 @@ export function ProfileScreen({ onBack, onLogout, userData, isAuthenticated = fa
         if (typeof prefs?.useByDefault === 'boolean') setUseByDefault(prefs.useByDefault);
         if (prefs?.carpoolPreferences) setCarpoolPreferences(prefs.carpoolPreferences);
 
-        // Issue 14: load real CO2 / cost stats
-        try {
-          const stats = await apiFetch('/trips/my-stats');
-          setMyStats(stats);
-        } catch {}
+        // Load real CO2 / cost stats in parallel — don't block on prefs failure
+        apiFetch('/trips/my-stats')
+          .then(stats => setMyStats(stats))
+          .catch(() => {});
       } catch (e: any) {
         setError(e?.message || 'Failed to load preferences');
       } finally {
@@ -93,7 +95,17 @@ export function ProfileScreen({ onBack, onLogout, userData, isAuthenticated = fa
               carpoolPreferences,
             }),
           });
-          alert('Preferences saved successfully!');
+          setSaveSuccess(true);
+          setTimeout(() => setSaveSuccess(false), 3000);
+          // Notify parent so AI chatbox can detect the change immediately
+          onPreferencesSaved?.({
+            maxWalkingTime,
+            budgetSensitivity,
+            preferredModes,
+            accessibility,
+            useByDefault,
+            carpoolPreferences,
+          });
         } catch (e: any) {
           setError(e?.message || 'Failed to save preferences');
         } finally {
@@ -192,7 +204,7 @@ export function ProfileScreen({ onBack, onLogout, userData, isAuthenticated = fa
               </div>
 
               {/* Quick Stats — real data from backend */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {[
                   {
                     label: 'Trips',
@@ -374,27 +386,39 @@ export function ProfileScreen({ onBack, onLogout, userData, isAuthenticated = fa
               </label>
             </div>
 
-            {/* Issue 14: Real CO2 / Cost stats cards */}
-            {isAuthenticated && myStats && (
+            {/* Real CO2 / Cost stats — always shown when authenticated */}
+            {isAuthenticated && (
               <div>
                 <div className="flex items-center gap-2 mb-4">
                   <span className="text-lg">🌿</span>
                   <label className="text-base font-bold text-white">My impact</label>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { label: 'CO₂ saved', value: `${myStats.co2_saved_kg.toFixed(1)} kg`, sub: 'vs solo driving', color: 'text-emerald-400' },
-                    { label: 'Money saved', value: `$${myStats.money_saved_cad.toFixed(0)}`, sub: 'vs solo driving', color: 'text-green-400' },
-                    { label: 'Trips taken', value: myStats.rides_taken, sub: 'as passenger', color: 'text-blue-400' },
-                    { label: 'Rides offered', value: myStats.rides_offered, sub: 'as driver', color: 'text-indigo-400' },
-                  ].map(({ label, value, sub, color }) => (
-                    <div key={label} className="p-4 rounded-xl bg-white/5 border border-white/10">
-                      <div className={`text-2xl font-bold ${color}`}>{value}</div>
-                      <div className="text-xs text-white mt-0.5">{label}</div>
-                      <div className="text-xs text-gray-500">{sub}</div>
-                    </div>
-                  ))}
-                </div>
+                {!myStats ? (
+                  <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 gap-3">
+                    {['CO₂ saved', 'Money saved', 'Trips taken', 'Rides offered'].map(label => (
+                      <div key={label} className="p-4 rounded-xl bg-white/5 border border-white/10 animate-pulse">
+                        <div className="h-7 w-16 bg-white/10 rounded mb-1" />
+                        <div className="text-xs text-white mt-0.5">{label}</div>
+                        <div className="h-3 w-20 bg-white/5 rounded mt-1" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 gap-3">
+                    {[
+                      { label: 'CO₂ saved',     value: `${myStats.co2_saved_kg.toFixed(1)} kg`,      sub: 'vs solo driving', color: 'text-emerald-400' },
+                      { label: 'Money saved',   value: `$${myStats.money_saved_cad.toFixed(0)}`,      sub: 'vs solo driving', color: 'text-green-400'   },
+                      { label: 'Trips taken',   value: String(myStats.rides_taken),                   sub: 'as passenger',    color: 'text-blue-400'    },
+                      { label: 'Rides offered', value: String(myStats.rides_offered),                 sub: 'as driver',       color: 'text-indigo-400'  },
+                    ].map(({ label, value, sub, color }) => (
+                      <div key={label} className="p-4 rounded-xl bg-white/5 border border-white/10">
+                        <div className={`text-2xl font-bold ${color}`}>{value}</div>
+                        <div className="text-xs text-white mt-0.5">{label}</div>
+                        <div className="text-xs text-gray-500">{sub}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -427,14 +451,27 @@ export function ProfileScreen({ onBack, onLogout, userData, isAuthenticated = fa
               </div>
             </div>
 
+            {/* Error / success banners */}
+            {error && (
+              <div className="mt-3 p-3 rounded-xl border border-red-500/30 bg-red-600/10 text-sm text-red-300">
+                {error}
+              </div>
+            )}
+            {saveSuccess && (
+              <div className="mt-3 p-3 rounded-xl border border-emerald-500/30 bg-emerald-600/10 text-sm text-emerald-300 flex items-center gap-2">
+                ✓ Preferences saved successfully!
+              </div>
+            )}
+
             {/* Save Button */}
             <div className="pt-4">
               <button
                 onClick={handleSave}
-                className="w-full py-4 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-cyan-600 hover:from-indigo-500 hover:via-purple-500 hover:to-cyan-500 text-white font-bold transition-all duration-200 shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
+                disabled={isLoading}
+                className="w-full py-4 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-cyan-600 hover:from-indigo-500 hover:via-purple-500 hover:to-cyan-500 disabled:opacity-50 text-white font-bold transition-all duration-200 shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
               >
                 <Save className="w-5 h-5" />
-                Save preferences
+                {isLoading ? 'Saving…' : 'Save preferences'}
               </button>
             </div>
           </div>

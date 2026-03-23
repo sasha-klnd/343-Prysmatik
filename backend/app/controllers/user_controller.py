@@ -88,5 +88,67 @@ def update_my_preferences():
     if "chatty" in carpool_prefs:
         prefs.chatty = bool(carpool_prefs["chatty"])
 
+    # Sync carpool lifestyle preferences to all OPEN rides by this user
+    from ..models import RidePost
+    open_rides = RidePost.query.filter_by(creator_user_id=user_id, status="OPEN").all()
+    for ride in open_rides:
+        ride.allow_smoking = prefs.allow_smoking
+        ride.allow_pets    = prefs.allow_pets
+        ride.music_ok      = prefs.music_ok
+        ride.chatty        = prefs.chatty
+
     db.session.commit()
-    return ok(prefs.to_dict())
+    return ok({**prefs.to_dict(), "rides_synced": len(open_rides)})
+
+
+@users_bp.post("/me/preferences/ai-update")
+@jwt_required()
+def ai_update_preferences():
+    """
+    Called by the frontend when the user agrees to update a preference
+    that the AI detected as contradicted.
+    Body: { "field": "maxWalkingTime", "value": 20 }
+    """
+    user_id = int(get_jwt_identity())
+    user    = User.query.get(user_id)
+    if not user:
+        return fail("User not found", 404)
+
+    data  = request.get_json(silent=True) or {}
+    field = data.get("field")
+    value = data.get("value")
+
+    if not field or value is None:
+        return fail("field and value are required", 400)
+
+    prefs = user.preferences
+    if not prefs:
+        prefs = UserPreferences(user=user)
+        db.session.add(prefs)
+
+    # Map field names to model attributes
+    field_map = {
+        "maxWalkingTime":      lambda v: setattr(prefs, "max_walking_time",      int(v)),
+        "budgetSensitivity":   lambda v: setattr(prefs, "budget_sensitivity",    int(v)),
+        "preferCarpool":       lambda v: setattr(prefs, "prefer_carpool",       bool(v)),
+        "preferTransit":       lambda v: setattr(prefs, "prefer_transit",       bool(v)),
+        "preferBike":          lambda v: setattr(prefs, "prefer_bike",          bool(v)),
+        "preferWalking":       lambda v: setattr(prefs, "prefer_walking",       bool(v)),
+        "preferDriving":       lambda v: setattr(prefs, "prefer_driving",       bool(v)),
+        "allowSmoking":        lambda v: setattr(prefs, "allow_smoking",        bool(v)),
+        "allowPets":           lambda v: setattr(prefs, "allow_pets",           bool(v)),
+        "musicOk":             lambda v: setattr(prefs, "music_ok",             bool(v)),
+        "chatty":              lambda v: setattr(prefs, "chatty",               bool(v)),
+    }
+
+    if field not in field_map:
+        return fail(f"Unknown preference field: {field}", 400)
+
+    field_map[field](value)
+    db.session.commit()
+
+    return ok({
+        "updated": field,
+        "value":   value,
+        "preferences": prefs.to_dict(),
+    })

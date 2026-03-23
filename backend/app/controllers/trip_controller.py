@@ -62,9 +62,12 @@ def log_trip():
         note=note,
     )
     db.session.add(trip)
-    db.session.commit()
+    # FIX: flush first so trip.id is populated, then publish the analytics event
+    # so the AnalyticsEvent row is added to the session *before* the single commit.
+    # Previously there were two separate commits — the trip was persisted even if
+    # the analytics write failed, breaking atomicity.
+    db.session.flush()
 
-    # Publish observer event
     EventBus.publish("trip_logged", user_id=user_id, metadata={
         "trip_id": trip.id, "mode": mode, "distance_km": distance_km
     })
@@ -92,6 +95,22 @@ def my_trips():
         .all()
     )
     return ok([t.to_dict() for t in trips])
+
+
+# ── DELETE /api/trips/<id> ────────────────────────────────────────────────────
+@trip_bp.delete("/<int:trip_id>")
+@jwt_required()
+def delete_trip(trip_id: int):
+    """Delete a logged trip (owned by the current user only)."""
+    user_id = int(get_jwt_identity())
+    trip = Trip.query.get(trip_id)
+    if not trip:
+        return fail("Trip not found", 404)
+    if trip.user_id != user_id:
+        return fail("Not allowed", 403)
+    db.session.delete(trip)
+    db.session.commit()
+    return ok({"deleted": True, "trip_id": trip_id})
 
 
 # ── GET /api/trips/my-stats ───────────────────────────────────────────────────

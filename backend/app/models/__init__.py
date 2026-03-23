@@ -4,5 +4,7 @@ from .ride_post import RidePost
 from .booking import CarpoolBooking
 from .analytics_event import AnalyticsEvent
 from .trip import Trip
+from .ride_rating import RideRating
 
-__all__ = ["User", "UserPreferences", "RidePost", "CarpoolBooking", "AnalyticsEvent", "Trip"]
+__all__ = ["User", "UserPreferences", "RidePost", "CarpoolBooking",
+           "AnalyticsEvent", "Trip", "RideRating"]

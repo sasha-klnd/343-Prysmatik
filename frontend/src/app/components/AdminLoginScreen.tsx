@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Lock, Eye, EyeOff, ChevronLeft, Shield } from 'lucide-react';
+import { apiFetch, setAdminToken } from '@/api/client';
 
 interface AdminLoginScreenProps {
   onLogin: (success: boolean) => void;
@@ -8,153 +9,114 @@ interface AdminLoginScreenProps {
 }
 
 export function AdminLoginScreen({ onLogin, onBack }: AdminLoginScreenProps) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email,        setEmail]        = useState('');
+  const [password,     setPassword]     = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [error,        setError]        = useState('');
+  const [isLoading,    setIsLoading]    = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    // Simple authentication check (in production, this would call an API)
-    setTimeout(() => {
-      if (email === 'admin@urbix.ai' && password === 'admin') {
-        onLogin(true);
-      } else {
-        setError('Invalid credentials. Please try again.');
-        setIsLoading(false);
+    try {
+      // Call the real backend admin login endpoint
+      const res = await apiFetch('/auth/admin/login', {
+        method: 'POST',
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      });
+
+      // Store admin JWT so analytics endpoints can authenticate
+      if (res.token) {
+        setAdminToken(res.token);
       }
-    }, 1000);
+
+      onLogin(true);
+    } catch (e: any) {
+      setError(e?.message || 'Invalid admin credentials.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0a0b0d] via-[#0f1012] to-[#141518] flex items-center justify-center p-6 relative overflow-hidden">
-      {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl animate-pulse delay-1000" />
       </div>
 
-      {/* Back button */}
-      <button
-        onClick={onBack}
-        className="absolute top-6 left-6 p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all duration-200 backdrop-blur-xl z-10 group"
-      >
-        <ChevronLeft className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
+      <button onClick={onBack}
+        className="absolute top-6 left-6 p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all backdrop-blur-xl z-10 group">
+        <ChevronLeft className="w-5 h-5 text-gray-300 group-hover:text-white" />
       </button>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-        className="w-full max-w-md relative z-10"
-      >
-        {/* Glass card */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }} className="w-full max-w-md relative z-10">
         <div className="bg-white/5 backdrop-blur-2xl rounded-3xl p-8 border border-white/10 shadow-2xl">
-          {/* Header */}
+
           <div className="text-center mb-8">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-600 mb-4 glow-effect"
-            >
-              <Shield className="w-8 h-8 text-white" />
-            </motion.div>
-            <h1 className="text-3xl font-bold text-white mb-2">Admin Access</h1>
-            <p className="text-gray-400">Sign in to access the UrbiX dashboard</p>
+            <div className="relative inline-block mb-4">
+              <div className="absolute inset-0 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl blur-xl opacity-50" />
+              <div className="relative bg-gradient-to-br from-indigo-600 to-purple-600 p-4 rounded-2xl">
+                <Shield className="w-8 h-8 text-white" />
+              </div>
+            </div>
+            <h1 className="text-3xl font-bold text-white mb-2">Admin Portal</h1>
+            <p className="text-gray-400 text-sm">UrbiX Analytics Dashboard</p>
           </div>
 
-          {/* Login form */}
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Email field */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Email
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Admin Email</label>
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@urbix.ai"
-                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-500 focus:outline-none focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                onChange={e => setEmail(e.target.value)}
+                placeholder="admin@urbix.com"
                 required
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-indigo-500/50 focus:outline-none text-white placeholder:text-gray-500"
               />
             </div>
 
-            {/* Password field */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Password
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Password</label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-500 focus:outline-none focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20 transition-all pr-12"
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
                   required
+                  className="w-full px-4 py-3 pr-12 rounded-xl bg-white/5 border border-white/10 focus:border-indigo-500/50 focus:outline-none text-white placeholder:text-gray-500"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-white transition-colors"
-                >
-                  {showPassword ? (
-                    <EyeOff className="w-5 h-5" />
-                  ) : (
-                    <Eye className="w-5 h-5" />
-                  )}
+                <button type="button" onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-white">
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
             </div>
 
-            {/* Error message */}
             {error && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm"
-              >
+              <div className="p-3 rounded-xl bg-red-600/10 border border-red-500/20 text-red-300 text-sm">
                 {error}
-              </motion.div>
+              </div>
             )}
 
-            {/* Submit button */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20"
-            >
+            <button type="submit" disabled={isLoading || !email || !password}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2">
               {isLoading ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                  <span>Signing in...</span>
-                </>
+                <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Authenticating…</>
               ) : (
-                <>
-                  <Lock className="w-5 h-5" />
-                  <span>Sign In</span>
-                </>
+                <><Lock className="w-4 h-4" /> Sign In</>
               )}
             </button>
           </form>
 
-          {/* Demo credentials */}
-          <div className="mt-6 p-4 rounded-xl bg-white/5 border border-white/10">
-            <p className="text-xs text-gray-400 text-center mb-2">Demo Credentials</p>
-            <p className="text-sm text-gray-300 text-center font-mono">admin@urbix.ai / admin</p>
+          <div className="mt-6 p-3 rounded-xl bg-white/5 border border-white/10 text-center">
+            <p className="text-xs text-gray-500">Admin credentials are set in your <span className="text-gray-300 font-mono">.env</span> file</p>
           </div>
-        </div>
-
-        {/* Security badge */}
-        <div className="mt-6 flex items-center justify-center gap-2 text-sm text-gray-500">
-          <Lock className="w-4 h-4" />
-          <span>Secured with enterprise-grade encryption</span>
         </div>
       </motion.div>
     </div>

@@ -51,11 +51,11 @@ export function Navigation({
                 <Zap className="w-5 h-5 text-white" />
               </div>
             </div>
-            <span className="text-xl font-bold gradient-text">UrbiX</span>
+            <span className="text-lg sm:text-xl font-bold gradient-text hidden xs:block">UrbiX</span>
           </button>
 
           {/* Nav Items */}
-          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
+          <div className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto scrollbar-none min-w-0 flex-1 px-1">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = isActive(item);
@@ -63,7 +63,7 @@ export function Navigation({
                 <button
                   key={item.id}
                   onClick={() => onNavigate(item.id)}
-                  className={`relative px-3 py-2 rounded-xl font-medium text-sm transition-all duration-200 flex items-center gap-1.5 group shrink-0 ${
+                  className={`relative px-2 sm:px-3 py-2 rounded-xl font-medium text-sm transition-all duration-200 flex items-center gap-1.5 group shrink-0 ${
                     active
                       ? 'bg-gradient-to-r from-indigo-600/20 to-purple-600/20 text-indigo-400 border border-indigo-500/30'
                       : 'text-gray-400 hover:bg-white/5 hover:text-white border border-transparent'

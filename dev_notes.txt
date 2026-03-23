@@ -46,6 +46,119 @@ flask --app run.py db upgrade
 
 Admin login : bug
 
-I want the system to show Parking spots based on User prompt in the AI screen 
+I want the system to show Parking spots based on User prompt in the AI screen. 
 (Near where user wants to go and might need parking for a part of his journey).
 Same logic for Bixi.
+
+
+Parking page showing actual parkings near where user wants to go.
+Admin login bug.
+Payment Implementation for Carpool.
+User Login/Sign up on the home page.
+Make sure every frontend pages are responsive.
+
+
+
+The chatbox top (destination and source) are not showing it correctly and not computed correclty from the prompt.
+
+When logged in, Chatbox should say : Hi NameOfUser, where do you want to go today?
+
+User stats are not always showing on the User page...
+
+seed.py that correctly populates the DB.
+
+
+When chatting with the AI chatbox, when user send a chat, it doesnt show on the screen until the AI comes back with the answer.. The user's chat sent should show directly (like claude, gpt, etc.)
+
+When user signs out during chat, close everything (no chat history, no nothing) brong him back to home page, NO HISTROY at all.
+
+
+Available Rides : We should be able to see complete Ride details when we click on it, because right now it does ... when there is no much space at the end.
+Chatbox refreshes and does "thinking" and uses tokens for the same chat when i go to another page and come back to it.
+Changing user preferences should change their rides that their offering in the Rides page.
+AI should'nt propose the own user carpool that he's offering.
+Admin page is saying unauthorized access. Weird bug. Fix it.
+
+
+User should be able to Login/Create account from the home page directly without needing to prompt in the AI chatbox.
+
+Coming from the login screen (admin) to the home page deletes the chat history. It shouldn't be like this.
+The chat history should be deleted when user logs out. 
+However, when user is chatting with the chabox and is not logged in and THEN logs in, the chat story should stay and the options offered too (except if it's a carpooling that the user himself offers.)
+
+When user clicks on the Log trip of an option offered by the chatbox and this option have Carpool, then system should tell user : Request for that ride? Then if user says yes, system should request the ride and then it shuld show on My Rides screen of the user.
+
+The URL is always localhost:5173 ; I dont want that. I want each page to have its own url so everytime i refresh a page i dont get redirected to the home page... That should be fixed.
+
+
+The parking page is using dummy data and it's not using the Google maps api. So first make is use the Google Maps api and second, when system offers a Car ride to the user in the chatbox, 
+OR when user is offering a Carpooling ride, the system should tell him : Would you like me to show you Available Parking near your destination? And when user clicks yes, it should bring him
+to the Parking page and show him actual parking near that place. 
+
+In addition, System should be aware of ALL of the user preferences when offering the ride options. However, this is true ONLY when user IS logged in. WHen he isn't, just show the options. 
+
+
+
+Time is not correct. When showing time (e.g. for When a carpool ride was requested, it doesn't show the correct time.)
+/home and /chat should be the same... Right now, when user logs in and goes to Home (in the navbar) nothing shows... This should be fixed.
+User shouldn't be able to log multiple trips... If he logs once, and clicks on another one, then system shloud say, you already logged your impact for another option, would you like to change?
+And if user says yes, then it should change and actually log the new one.
+When chatting, the box where user write in is shaking (goes up and down) and doesn't show what user is typing.
+If user makes a prompt and then change his prefrences, then the AI shuold say I noticed you changed your preferences, would you like me to show you options again based on you're preferences?
+Admin analytics are showing in black for booking status distribution.
+When user creates his profile : ask all the questions necessarly to set up his preferences.
+The email sending service for carpoolin using SMTP doesn't work and it says this error : 
+[EMAIL] send failed: (535, b'5.7.8 Username and Password not accepted. For more information, go to\n5.7.8  https://support.google.com/mail/?p=BadCredentials af79cd13be357-8cfc8f5cd4csm765559985a.5 - gsmtp')
+
+
+
+Same user shouldn't be able to send more than 1 request to a single carpool ride.
+All of the webpages should be FULLY responsive.
+
+
+For the multiple logs, the system has a bug. It doesn't do it properly. First of all, when i clicked on a option to log it, it says it's not a valid mode... 
+Then when i clicked on another option, it logged it however when i clicked on another option to log, it told me Replace logged trip? And when i said keep current, 
+even the current one had disappeared and wasn't green and logged anymore... 
+When i clicked on change it, then it said : Trip not found.
+
+The carpool page is blank, does not show anything....
+
+The url is not working when i try to type it and go to the URL that i really want.
+
+
+When a Carpool option is shown in the options and that carpool is not EXACLTY the same desination or source location, then show Carpool + Other needed way of transporation (e.g. walk, bixi, etc.)
+Also, when a carpool option is shown, right now it says a text like this : 
+Kourosh's carpool matches all your preferences (pets OK, music OK, chatty). 
+You'd take transit (2.5 km) from Marché Jean-Talon to Métro Mont-Royal pickup, then ride with Kourosh to Vieux-Port, and take transit again (~2.7 km) onward. 
+Note: the dropoff at Vieux-Port is not close to Concordia — an additional transit leg is needed, making this a longer journey overall.
+| Driver: Kourosh Karimianboneh | Departs: 2026-03-24 07:55 | 3 seat(s) available
+
+Make sure that the number of seats avialable as well the ride details (such as the preferneces/ time, etc.) are accurate and consistent if user changes it. 
+For example if the driver already accepted 2 of the requests, then the available seats should show 1, not 3. Or if the driver changed his ride time, or preferences, 
+it should show as well. 
+In addition if those details are changed, and those change details dont' match anymore the user's preferences (the one asking for a ride), the AI chatbox shouldn't propose them anymore.
+
+
+Fix alert() calls and add rate limiting — these are production blockers
+JWT refresh tokens — authentication is currently broken for real use
+STM GTFS-RT real-time departures — biggest user-value per hour of work
+Push notifications for carpool status — makes the core feature actually work
+Rating system + email verification — the trust layer carpooling requires
+
+When user is chatting with the AI and mid chat, he goes to preferences page to change his preferneces, as before, AI should say Notice a change in preferences, would you like me to show
+you options based on your new preferences? 
+
+In addition, if user says something that doesn't match his preferences (inconsistency), then AI should say I noticed this inconsistency, would you like me to change it?
+
+
+
+Even when email is verified, the Please veirfy your email is there. 
+It keeps saying this :  
+⚠️ A carpool match (Longueuil, Métro Longueuil → McGill University) was removed — the driver updated their ride and it no longer fits your preferences.
+
+Maybe the update happens too much... It just shows it... And also even if the prefernces dont match, it should give the options, however flag it and say : 
+Preferences don't match. But still show it.
+
+And also, it has to show carpooling options even if the origin and destination is not exactly matching, as long as it matches the user preferences (e.g. if the carpooling 
+drop off is about 20 min of walk from user destination and user have set the max walking to 30 min, then it shuold show. Or show the public tranport option after the 
+carpool drop off to get to desination if user have selected the public transport in his preferences...)
