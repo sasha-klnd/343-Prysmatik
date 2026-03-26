@@ -5,6 +5,7 @@ import {
     Check,
     ChevronLeft,
     Clock,
+    CreditCard,
     Edit,
     MapPin,
     RefreshCcw,
@@ -21,7 +22,7 @@ interface MyRidesScreenProps {
 }
 
 type RideStatus = 'OPEN' | 'FULL' | 'CANCELLED' | 'COMPLETED';
-type BookingStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'CANCELLED';
+type BookingStatus = 'PENDING' | 'AWAITING_PAYMENT' | 'ACCEPTED' | 'REJECTED' | 'CANCELLED';
 
 type SafeUser = {
     id: number;
@@ -38,6 +39,7 @@ type Ride = {
     status: RideStatus;
     creator: SafeUser;
     requests_count?: number;
+    price_per_seat_cad?: number | null;
 };
 
 type Booking = {
@@ -46,6 +48,9 @@ type Booking = {
     passenger: SafeUser;
     seats_requested: number;
     status: BookingStatus;
+    payment_status?: string;
+    amount_due_cad?: number | null;
+    paid_at?: string | null;
     created_at: string;
 };
 
@@ -87,6 +92,7 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
         date: '',
         time: '',
         seatsAvailable: 1,
+        pricePerSeatCad: '',
     });
 
     const showToastMsg = (msg: string) => {
@@ -102,6 +108,12 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
             CANCELLED: { bg: 'bg-gray-600/20', border: 'border-gray-500/30', text: 'text-gray-300', label: 'Cancelled' },
             COMPLETED: { bg: 'bg-gray-600/20', border: 'border-gray-500/30', text: 'text-gray-300', label: 'Completed' },
             PENDING: { bg: 'bg-blue-600/20', border: 'border-blue-500/30', text: 'text-blue-300', label: 'Pending' },
+            AWAITING_PAYMENT: {
+                bg: 'bg-amber-600/20',
+                border: 'border-amber-500/30',
+                text: 'text-amber-200',
+                label: 'Awaiting payment',
+            },
             ACCEPTED: { bg: 'bg-emerald-600/20', border: 'border-emerald-500/30', text: 'text-emerald-300', label: 'Approved' },
             REJECTED: { bg: 'bg-red-600/20', border: 'border-red-500/30', text: 'text-red-300', label: 'Rejected' },
         };
@@ -191,6 +203,10 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
             date: formatDate(ride.departure_datetime),
             time: formatTime(ride.departure_datetime),
             seatsAvailable: ride.seats_available,
+            pricePerSeatCad:
+                ride.price_per_seat_cad != null && ride.price_per_seat_cad > 0
+                    ? String(ride.price_per_seat_cad)
+                    : '',
         });
     };
 
@@ -203,15 +219,26 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
         if (!editingRide) return;
         setError(null);
         try {
+            const putBody: Record<string, unknown> = {
+                departure: editForm.departure,
+                destination: editForm.destination,
+                date: editForm.date,
+                time: editForm.time,
+                seats_available: editForm.seatsAvailable,
+            };
+            const pstr = editForm.pricePerSeatCad.trim();
+            if (pstr === '') putBody.price_per_seat_cad = null;
+            else {
+                const n = Number(pstr);
+                if (!Number.isFinite(n) || n < 0) {
+                    setError('Price per seat must be a non-negative number');
+                    return;
+                }
+                putBody.pricePerSeatCad = n;
+            }
             await apiFetch(`/rides/${editingRide.id}`, {
                 method: 'PUT',
-                body: JSON.stringify({
-                    departure: editForm.departure,
-                    destination: editForm.destination,
-                    date: editForm.date,
-                    time: editForm.time,
-                    seats_available: editForm.seatsAvailable,
-                }),
+                body: JSON.stringify(putBody),
             });
             showToastMsg('Ride updated');
             setEditingRide(null);
@@ -273,6 +300,21 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
             await loadRequestsForRide(rideId);
         } catch (e: any) {
             setError(e?.message || 'Failed to reject request');
+        }
+    };
+
+    const payBooking = async (bookingId: number) => {
+        if (!isAuthenticated) {
+            onRequireAuth('complete payment');
+            return;
+        }
+        setError(null);
+        try {
+            await apiFetch(`/rides/bookings/${bookingId}/pay`, { method: 'POST' });
+            showToastMsg('Payment completed — your seat is confirmed');
+            await loadRequested();
+        } catch (e: any) {
+            setError(e?.message || 'Payment failed');
         }
     };
 
@@ -458,6 +500,11 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
                                                         <Users className="w-4 h-4 text-gray-400" />
                                                         {ride.seats_available} seats available
                                                     </div>
+                                                    {ride.price_per_seat_cad != null && ride.price_per_seat_cad > 0 && (
+                                                        <div className="text-xs text-amber-200/90 mt-1">
+                                                            ${Number(ride.price_per_seat_cad).toFixed(2)} CAD per seat
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
 
@@ -515,6 +562,11 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
                                                                     <span className="text-xs text-gray-400">(User #{req.passenger.id})</span>
                                                                 </div>
                                                                 <p className="text-xs text-gray-400 mt-1">Seats requested: {req.seats_requested}</p>
+                                                                {req.status === 'AWAITING_PAYMENT' && req.amount_due_cad != null && (
+                                                                    <p className="text-xs text-amber-200 mt-1">
+                                                                        Owed: ${Number(req.amount_due_cad).toFixed(2)} CAD (passenger must pay)
+                                                                    </p>
+                                                                )}
                                                                 <p className="text-xs text-gray-500 mt-1">
                                                                     Requested at: {new Date(req.created_at).toLocaleString()}
                                                                 </p>
@@ -533,6 +585,18 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
                                                                         className="px-4 py-2 rounded-xl bg-red-600/20 border border-red-500/30 text-red-200 hover:bg-red-600/30 text-sm"
                                                                     >
                                                                         Reject
+                                                                    </button>
+                                                                </div>
+                                                            ) : req.status === 'AWAITING_PAYMENT' ? (
+                                                                <div className="flex flex-col items-end gap-2">
+                                                                    <span className="text-[10px] text-gray-400 text-right max-w-[200px]">
+                                                                        Seat is reserved after the passenger pays in My Rides.
+                                                                    </span>
+                                                                    <button
+                                                                        onClick={() => reject(req.id, ride.id)}
+                                                                        className="px-4 py-2 rounded-xl bg-red-600/20 border border-red-500/30 text-red-200 hover:bg-red-600/30 text-sm"
+                                                                    >
+                                                                        Revoke approval
                                                                     </button>
                                                                 </div>
                                                             ) : (
@@ -584,23 +648,47 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
                                                         Seats requested: {booking.seats_requested}
                                                     </div>
                                                 </div>
+                                                {booking.status === 'AWAITING_PAYMENT' && booking.amount_due_cad != null && (
+                                                    <p className="text-sm text-amber-200 mt-2">
+                                                        Amount due: <span className="font-semibold">${Number(booking.amount_due_cad).toFixed(2)} CAD</span>
+                                                        <span className="text-gray-400 text-xs block mt-0.5">
+                                                            Driver approved your request — pay to confirm your seat.
+                                                        </span>
+                                                    </p>
+                                                )}
+                                                {booking.status === 'ACCEPTED' && booking.payment_status === 'PAID' && booking.paid_at && (
+                                                    <p className="text-xs text-emerald-300/90 mt-2">Paid on {new Date(booking.paid_at).toLocaleString()}</p>
+                                                )}
                                                 <p className="text-sm text-gray-400 mt-3">
                                                     Driver: <span className="text-white font-semibold">{ride.creator.name}</span>{' '}
                                                     <span className="text-xs text-gray-500">(User #{ride.creator.id})</span>
                                                 </p>
                                             </div>
 
-                                            {(booking.status === 'PENDING' || booking.status === 'ACCEPTED') ? (
-                                                <button
-                                                    onClick={() => cancelRequest(booking.id)}
-                                                    className="px-4 py-2 rounded-xl bg-gray-600/20 border border-white/10 text-gray-200 hover:bg-white/5 text-sm flex items-center gap-2"
-                                                >
-                                                    <X className="w-4 h-4" />
-                                                    Cancel
-                                                </button>
-                                            ) : (
-                                                <div className="text-xs text-gray-400">No actions</div>
-                                            )}
+                                            <div className="flex flex-col items-end gap-2">
+                                                {booking.status === 'AWAITING_PAYMENT' && booking.payment_status === 'PENDING' && (
+                                                    <button
+                                                        onClick={() => payBooking(booking.id)}
+                                                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 text-white text-sm flex items-center gap-2 shadow-lg shadow-amber-900/30"
+                                                    >
+                                                        <CreditCard className="w-4 h-4" />
+                                                        Pay now (demo)
+                                                    </button>
+                                                )}
+                                                {(booking.status === 'PENDING' ||
+                                                    booking.status === 'ACCEPTED' ||
+                                                    booking.status === 'AWAITING_PAYMENT') ? (
+                                                    <button
+                                                        onClick={() => cancelRequest(booking.id)}
+                                                        className="px-4 py-2 rounded-xl bg-gray-600/20 border border-white/10 text-gray-200 hover:bg-white/5 text-sm flex items-center gap-2"
+                                                    >
+                                                        <X className="w-4 h-4" />
+                                                        Cancel
+                                                    </button>
+                                                ) : (
+                                                    <div className="text-xs text-gray-400">No actions</div>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 );
@@ -656,6 +744,18 @@ export function MyRidesScreen({ onBack, isAuthenticated, onRequireAuth }: MyRide
                                     type="time"
                                     value={editForm.time}
                                     onChange={(e) => setEditForm((p) => ({ ...p, time: e.target.value }))}
+                                    className="mt-1 w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-white outline-none"
+                                />
+                            </div>
+                            <div className="sm:col-span-2">
+                                <label className="text-xs text-gray-400">Price per seat (CAD)</label>
+                                <input
+                                    type="number"
+                                    min={0}
+                                    step="0.01"
+                                    placeholder="0 = free"
+                                    value={editForm.pricePerSeatCad}
+                                    onChange={(e) => setEditForm((p) => ({ ...p, pricePerSeatCad: e.target.value }))}
                                     className="mt-1 w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-white outline-none"
                                 />
                             </div>

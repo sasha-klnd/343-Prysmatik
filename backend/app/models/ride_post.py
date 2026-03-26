@@ -20,6 +20,9 @@ class RidePost(db.Model):
 
     seats_available = db.Column(db.Integer, nullable=False, default=1)
 
+    # Optional contribution per seat (CAD). Null or 0 = free ride.
+    price_per_seat_cad = db.Column(db.Float, nullable=True)
+
     # Issue 1: meetup point lat/lng (optional, for map pin)
     meetup_lat  = db.Column(db.Float, nullable=True)
     meetup_lng  = db.Column(db.Float, nullable=True)
@@ -48,6 +51,7 @@ class RidePost(db.Model):
             "destination":       self.destination,
             "departure_datetime": self.departure_datetime.isoformat(),
             "seats_available":   self.seats_available,
+            "price_per_seat_cad": self.price_per_seat_cad,
             "status":            self.status,
             "creator":           self.creator.to_safe_dict() if self.creator else None,
             # meetup point

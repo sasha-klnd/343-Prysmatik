@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle, Calendar, ChevronLeft, Clock, MapPin, Users,
+  AlertCircle, Calendar, ChevronLeft, Clock, CreditCard, DollarSign, MapPin, Users,
   SlidersHorizontal, Cigarette, PawPrint, Music, MessageCircle, X
 } from 'lucide-react';
 import { apiFetch } from '@/api/client';
@@ -32,7 +32,21 @@ type Ride = {
   meetup_lat?:        number | null;
   meetup_lng?:        number | null;
   ridePreferences?:   RidePreferences;
+  price_per_seat_cad?: number | null;
 };
+
+type MyBooking = {
+  id: number;
+  ride_post_id: number;
+  status: string;
+  payment_status?: string;
+  amount_due_cad?: number | null;
+  paid_at?: string | null;
+  seats_requested: number;
+  created_at: string;
+};
+
+type MyRequestedRow = { booking: MyBooking; ride: Ride };
 
 function fmtDate(iso: string) { return new Date(iso).toISOString().slice(0, 10); }
 function fmtTime(iso: string) { return new Date(iso).toTimeString().slice(0, 5); }
@@ -65,6 +79,9 @@ export function CarpoolScreen({ onBack, isAuthenticated, onRequireAuth }: Props)
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [myRequested, setMyRequested] = useState<MyRequestedRow[]>([]);
+  const [loadingMine, setLoadingMine] = useState(false);
+  const [payingId, setPayingId] = useState<number | null>(null);
 
   const [filters, setFilters] = useState<ActiveFilters>({
     noSmoking: false,
@@ -80,6 +97,7 @@ export function CarpoolScreen({ onBack, isAuthenticated, onRequireAuth }: Props)
     time:            '',
     seatsAvailable:  1,
     meetupAddress:   '',
+    pricePerSeatCad: '' as string | number,
     // Ride preferences
     allowSmoking:    false,
     allowPets:       false,
@@ -122,6 +140,26 @@ export function CarpoolScreen({ onBack, isAuthenticated, onRequireAuth }: Props)
 
   useEffect(() => { loadRides(); }, []);
 
+  const loadMyRequested = async () => {
+    if (!isAuthenticated) {
+      setMyRequested([]);
+      return;
+    }
+    try {
+      setLoadingMine(true);
+      const data = await apiFetch('/rides/mine/requested');
+      setMyRequested(Array.isArray(data) ? data : []);
+    } catch {
+      setMyRequested([]);
+    } finally {
+      setLoadingMine(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMyRequested();
+  }, [isAuthenticated]);
+
   const toggleFilter = (key: keyof ActiveFilters) => {
     const next = { ...filters, [key]: !filters[key] };
     setFilters(next);
@@ -139,23 +177,30 @@ export function CarpoolScreen({ onBack, isAuthenticated, onRequireAuth }: Props)
 
     try {
       setError(null);
-      await apiFetch('/rides', {
-        method: 'POST',
-        body: JSON.stringify({
-          departure:      form.departure.trim(),
-          destination:    form.destination.trim(),
-          date:           form.date,
-          time:           form.time,
-          seats_available: form.seatsAvailable,
-          ridePreferences: {
-            allowSmoking: form.allowSmoking,
-            allowPets:    form.allowPets,
-            musicOk:      form.musicOk,
-            chatty:       form.chatty,
-          },
-        }),
-      });
-      setForm({ departure: '', destination: '', date: '', time: '', seatsAvailable: 1, meetupAddress: '', allowSmoking: false, allowPets: false, musicOk: true, chatty: true });
+      const rawPrice = String(form.pricePerSeatCad).trim();
+      const payload: Record<string, unknown> = {
+        departure:       form.departure.trim(),
+        destination:     form.destination.trim(),
+        date:            form.date,
+        time:            form.time,
+        seats_available: form.seatsAvailable,
+        ridePreferences: {
+          allowSmoking: form.allowSmoking,
+          allowPets:    form.allowPets,
+          musicOk:      form.musicOk,
+          chatty:       form.chatty,
+        },
+      };
+      if (rawPrice !== '') {
+        const n = Number(rawPrice);
+        if (!Number.isFinite(n) || n < 0) {
+          setError('Price per seat must be a non-negative number.');
+          return;
+        }
+        payload.pricePerSeatCad = n;
+      }
+      await apiFetch('/rides', { method: 'POST', body: JSON.stringify(payload) });
+      setForm({ departure: '', destination: '', date: '', time: '', seatsAvailable: 1, meetupAddress: '', pricePerSeatCad: '', allowSmoking: false, allowPets: false, musicOk: true, chatty: true });
       await loadRides();
     } catch (e: any) {
       setError(e?.message || 'Failed to post ride');
@@ -169,13 +214,39 @@ export function CarpoolScreen({ onBack, isAuthenticated, onRequireAuth }: Props)
       setError(null);
       await apiFetch(`/rides/${ride.id}/request`, { method: 'POST', body: JSON.stringify({ seats_requested: 1 }) });
       await loadRides();
+      await loadMyRequested();
       alert('Request sent! The driver will review it.');
     } catch (e: any) {
       setError(e?.message || 'Failed to request ride');
     }
   };
 
+  const payBooking = async (bookingId: number) => {
+    if (!isAuthenticated) return onRequireAuth('complete payment');
+    try {
+      setError(null);
+      setPayingId(bookingId);
+      await apiFetch(`/rides/bookings/${bookingId}/pay`, { method: 'POST' });
+      await loadMyRequested();
+      await loadRides();
+      alert('Payment completed — your seat is confirmed.');
+    } catch (e: any) {
+      setError(e?.message || 'Payment failed');
+    } finally {
+      setPayingId(null);
+    }
+  };
+
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
+
+  const awaitingPay = myRequested.filter(
+    (row) => row.booking.status === 'AWAITING_PAYMENT' && row.booking.payment_status === 'PENDING'
+  );
+  const otherActive = myRequested.filter(
+    (row) =>
+      row.booking.status === 'PENDING' ||
+      row.booking.status === 'ACCEPTED'
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0a0b0d] via-[#0b1020] to-[#110a1a] text-white">
@@ -241,6 +312,15 @@ export function CarpoolScreen({ onBack, isAuthenticated, onRequireAuth }: Props)
           </div>
         )}
 
+        {/* How paid carpool works */}
+        <div className="mb-6 p-4 rounded-2xl border border-white/10 bg-indigo-950/30">
+          <p className="text-sm text-gray-200">
+            <span className="font-semibold text-indigo-300">Payments: </span>
+            Set a <strong className="text-white">price per seat</strong> when you offer a ride (or leave it free).
+            After a driver <strong className="text-white">approves</strong> a paid ride, complete payment below or in <strong className="text-white">My Rides</strong>.
+          </p>
+        </div>
+
         <div className="grid lg:grid-cols-2 gap-6">
 
           {/* ── Offer a ride form ─────────────────────────────────────── */}
@@ -272,6 +352,18 @@ export function CarpoolScreen({ onBack, isAuthenticated, onRequireAuth }: Props)
               <label className="text-xs text-gray-400 mt-1 flex items-center gap-1"><Users className="w-3 h-3" /> Seats available *</label>
               <input type="number" min={1} max={8} className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm"
                 value={form.seatsAvailable} onChange={e => setForm(p => ({ ...p, seatsAvailable: Number(e.target.value) }))} />
+
+              <label className="text-xs text-gray-400 mt-1 flex items-center gap-1"><DollarSign className="w-3 h-3" /> Price per seat (CAD)</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm"
+                placeholder="0 = free"
+                value={form.pricePerSeatCad}
+                onChange={e => setForm(p => ({ ...p, pricePerSeatCad: e.target.value }))}
+              />
+              <p className="text-[10px] text-gray-500">Leave empty or 0 for a free ride. Passengers pay after you approve their request.</p>
 
               {/* Issue 8: ride preferences on the offer form */}
               <div className="mt-3 p-3 rounded-xl border border-white/10 bg-white/5">
@@ -352,6 +444,13 @@ export function CarpoolScreen({ onBack, isAuthenticated, onRequireAuth }: Props)
                               <Users className="w-3 h-3" />
                               {r.seats_available} seat{r.seats_available !== 1 ? 's' : ''}
                             </span>
+                            {r.price_per_seat_cad != null && r.price_per_seat_cad > 0 ? (
+                              <span className="flex items-center gap-1 text-amber-300/90">
+                                <DollarSign className="w-3 h-3" /> {Number(r.price_per_seat_cad).toFixed(2)} / seat
+                              </span>
+                            ) : (
+                              <span className="text-emerald-400/90 text-[11px]">Free</span>
+                            )}
                             <span className="text-gray-500">Driver: {r.creator.name}</span>
                           </div>
 
@@ -390,6 +489,87 @@ export function CarpoolScreen({ onBack, isAuthenticated, onRequireAuth }: Props)
             )}
           </div>
         </div>
+
+        {/* Your requests & pay (same flow as My Rides, surfaced here) */}
+        {isAuthenticated && (
+          <div className="mt-8 space-y-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-amber-400" />
+                Your requests &amp; payment
+              </h2>
+              <button
+                type="button"
+                onClick={() => loadMyRequested()}
+                className="text-xs px-3 py-1.5 rounded-xl border border-white/10 text-gray-300 hover:bg-white/5"
+              >
+                {loadingMine ? 'Loading…' : 'Refresh status'}
+              </button>
+            </div>
+
+            {awaitingPay.length > 0 && (
+              <div className="p-4 rounded-2xl border border-amber-500/35 bg-amber-950/25 space-y-3">
+                <p className="text-xs font-medium text-amber-200/90 uppercase tracking-wide">Payment required</p>
+                {awaitingPay.map(({ booking: b, ride: r }) => (
+                  <div
+                    key={b.id}
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-amber-500/25 bg-black/20"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium text-white truncate">
+                        {r.departure} → {r.destination}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {fmtDate(r.departure_datetime)} {fmtTime(r.departure_datetime)} · {b.seats_requested} seat{b.seats_requested !== 1 ? 's' : ''}
+                      </div>
+                      {b.amount_due_cad != null && (
+                        <div className="text-sm text-amber-200 mt-2">
+                          Amount due:{' '}
+                          <span className="font-bold">${Number(b.amount_due_cad).toFixed(2)} CAD</span>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => payBooking(b.id)}
+                      disabled={payingId === b.id}
+                      className="shrink-0 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 text-white text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      {payingId === b.id ? 'Processing…' : 'Pay now (demo)'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {otherActive.length > 0 && (
+              <div className="p-4 rounded-2xl border border-white/10 bg-white/5">
+                <p className="text-xs text-gray-400 mb-3">Other active requests</p>
+                <ul className="space-y-2 text-sm">
+                  {otherActive.slice(0, 8).map(({ booking: b, ride: r }) => (
+                    <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 text-gray-300 border-b border-white/5 pb-2 last:border-0 last:pb-0">
+                      <span className="truncate">
+                        {r.departure} → {r.destination}
+                      </span>
+                      <span className="text-xs text-gray-500 shrink-0">
+                        {b.status === 'PENDING' && 'Waiting for driver'}
+                        {b.status === 'ACCEPTED' &&
+                          (b.payment_status === 'PAID' ? 'Paid — confirmed' : 'Confirmed (free ride)')}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {!loadingMine && awaitingPay.length === 0 && otherActive.length === 0 && (
+              <p className="text-sm text-gray-500 px-1">
+                You have no open carpool requests. Request a seat above — if it&apos;s a paid ride, a <strong className="text-gray-400">Pay now</strong> button will appear here after the driver approves.
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

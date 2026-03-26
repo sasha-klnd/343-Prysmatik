@@ -194,6 +194,20 @@ def create_ride_offer():
         except (TypeError, ValueError):
             meetup_lng = None
 
+    raw_price = data.get("pricePerSeatCad")
+    if raw_price is None:
+        raw_price = data.get("price_per_seat_cad")
+    price_per_seat_cad = None
+    if raw_price is not None and raw_price != "":
+        try:
+            p = float(raw_price)
+            if p < 0 or p > 999.99:
+                return fail("pricePerSeatCad must be between 0 and 999.99", 400)
+            if p > 0:
+                price_per_seat_cad = round(p, 2)
+        except (TypeError, ValueError):
+            return fail("pricePerSeatCad must be a number", 400)
+
     ride = RidePost(
         creator=user,
         departure=departure,
@@ -207,6 +221,7 @@ def create_ride_offer():
         chatty=chatty,
         meetup_lat=meetup_lat,
         meetup_lng=meetup_lng,
+        price_per_seat_cad=price_per_seat_cad,
     )
 
     db.session.add(ride)
@@ -274,6 +289,21 @@ def update_ride(ride_id: int):
     elif ride.status == "FULL":
         ride.status = "OPEN"
 
+    if "pricePerSeatCad" in data or "price_per_seat_cad" in data:
+        raw_price = data.get("pricePerSeatCad")
+        if raw_price is None:
+            raw_price = data.get("price_per_seat_cad")
+        if raw_price is None or raw_price == "":
+            ride.price_per_seat_cad = None
+        else:
+            try:
+                p = float(raw_price)
+                if p < 0 or p > 999.99:
+                    return fail("pricePerSeatCad must be between 0 and 999.99", 400)
+                ride.price_per_seat_cad = round(p, 2) if p > 0 else None
+            except (TypeError, ValueError):
+                return fail("pricePerSeatCad must be a number", 400)
+
     db.session.commit()
     return ok(ride.to_dict())
 
@@ -300,7 +330,7 @@ def delete_ride(ride_id: int):
     # Optional: notify all pending/accepted passengers
     bookings = CarpoolBooking.query.filter_by(ride_post_id=ride.id).all()
     for b in bookings:
-        if b.status in ("PENDING", "ACCEPTED"):
+        if b.status in ("PENDING", "ACCEPTED", "AWAITING_PAYMENT"):
             try:
                 text = (
                     f"The ride {ride.departure} → {ride.destination} at "
@@ -355,7 +385,7 @@ def request_ride(ride_id: int):
     existing = CarpoolBooking.query.filter_by(
         ride_post_id=ride.id, passenger_user_id=passenger.id
     ).first()
-    if existing and existing.status in ("PENDING", "ACCEPTED"):
+    if existing and existing.status in ("PENDING", "ACCEPTED", "AWAITING_PAYMENT"):
         return fail("You already have a booking for this ride", 409)
 
     data = request.get_json(silent=True) or {}
@@ -470,33 +500,59 @@ def approve_request(booking_id: int):
     if booking.seats_requested > ride.seats_available:
         return fail("Not enough seats available", 400)
 
-    # approve + decrement seats
-    booking.status = "ACCEPTED"
-    booking.status_updated_at = _now()
-    ride.seats_available -= booking.seats_requested
-    if ride.seats_available <= 0:
-        ride.seats_available = 0
-        ride.status = "FULL"
+    unit = ride.price_per_seat_cad or 0.0
+    total_due = round(float(unit) * booking.seats_requested, 2)
+
+    if total_due <= 0:
+        booking.status = "ACCEPTED"
+        booking.payment_status = "NONE"
+        booking.amount_due_cad = None
+        booking.status_updated_at = _now()
+        ride.seats_available -= booking.seats_requested
+        if ride.seats_available <= 0:
+            ride.seats_available = 0
+            ride.status = "FULL"
+    else:
+        booking.status = "AWAITING_PAYMENT"
+        booking.payment_status = "PENDING"
+        booking.amount_due_cad = total_due
+        booking.status_updated_at = _now()
 
     db.session.commit()
     EventBus.publish("booking_approved", user_id=driver.id, metadata={"booking_id": booking.id, "ride_id": ride.id})
 
     # Email passenger
     try:
-        text = (
-            f"Your request was approved for {ride.departure} → {ride.destination} "
-            f"at {ride.departure_datetime.isoformat()}."
-        )
-        html = urbix_email_html(
-            title="Request approved",
-            subtitle="You're in — the driver approved your request.",
-            badge="APPROVED",
-            rows=_ride_rows(ride, seats=booking.seats_requested,
-                            status="Accepted"),
-            cta_text="Open My Rides",
-            cta_url="",
-            footer_note="UrbiX • Have a great ride",
-        )
+        if total_due <= 0:
+            text = (
+                f"Your request was approved for {ride.departure} → {ride.destination} "
+                f"at {ride.departure_datetime.isoformat()}."
+            )
+            html = urbix_email_html(
+                title="Request approved",
+                subtitle="You're in — the driver approved your request.",
+                badge="APPROVED",
+                rows=_ride_rows(ride, seats=booking.seats_requested,
+                                status="Accepted"),
+                cta_text="Open My Rides",
+                cta_url="",
+                footer_note="UrbiX • Have a great ride",
+            )
+        else:
+            text = (
+                f"Your request was approved for {ride.departure} → {ride.destination}. "
+                f"Complete payment of ${total_due:.2f} CAD in My Rides to confirm your seat."
+            )
+            html = urbix_email_html(
+                title="Complete your payment",
+                subtitle=f"The driver approved your request. Pay ${total_due:.2f} CAD in My Rides to confirm.",
+                badge="PAYMENT DUE",
+                rows=_ride_rows(ride, seats=booking.seats_requested,
+                                status="Awaiting payment"),
+                cta_text="Open My Rides",
+                cta_url="",
+                footer_note="UrbiX • Your seat is held until you pay",
+            )
         send_email(
             booking.passenger.email,
             "UrbiX: Ride request approved",
@@ -526,10 +582,12 @@ def reject_request(booking_id: int):
     if ride.creator_user_id != driver.id:
         return fail("Not allowed", 403)
 
-    if booking.status != "PENDING":
-        return fail("Request is not pending", 400)
+    if booking.status not in ("PENDING", "AWAITING_PAYMENT"):
+        return fail("Request cannot be rejected", 400)
 
     booking.status = "REJECTED"
+    booking.payment_status = "NONE"
+    booking.amount_due_cad = None
     booking.status_updated_at = _now()
     db.session.commit()
     EventBus.publish("booking_rejected", user_id=driver.id, metadata={"booking_id": booking.id, "ride_id": ride.id})
@@ -581,6 +639,57 @@ def my_bookings():
     return ok([b.to_dict() for b in bookings])
 
 
+# --------------------------
+# Passenger: mock payment (replace with Stripe Checkout in production)
+# --------------------------
+@ride_bp.post("/bookings/<int:booking_id>/pay")
+@jwt_required()
+def pay_booking(booking_id: int):
+    auto_reject_expired_requests()
+
+    passenger = _current_user()
+    if not passenger:
+        return fail("User not found", 404)
+
+    booking = CarpoolBooking.query.get(booking_id)
+    if not booking:
+        return fail("Booking not found", 404)
+
+    if booking.passenger_user_id != passenger.id:
+        return fail("Not allowed", 403)
+
+    if booking.status != "AWAITING_PAYMENT":
+        return fail("No payment is due for this booking", 400)
+    if booking.payment_status != "PENDING":
+        return fail("Invalid payment state", 400)
+
+    ride = booking.ride_post
+    if booking.seats_requested > ride.seats_available:
+        return fail("Not enough seats available — ride may be full", 400)
+
+    booking.status = "ACCEPTED"
+    booking.payment_status = "PAID"
+    booking.paid_at = _now()
+    booking.status_updated_at = _now()
+    ride.seats_available -= booking.seats_requested
+    if ride.seats_available <= 0:
+        ride.seats_available = 0
+        ride.status = "FULL"
+
+    db.session.commit()
+    EventBus.publish(
+        "carpool_payment_completed",
+        user_id=passenger.id,
+        metadata={
+            "booking_id": booking.id,
+            "ride_id": ride.id,
+            "amount_cad": booking.amount_due_cad,
+        },
+    )
+
+    return ok({"booking": booking.to_dict(), "ride": ride.to_dict()})
+
+
 @ride_bp.delete("/requests/<int:booking_id>")
 @jwt_required()
 def cancel_request(booking_id: int):
@@ -597,18 +706,20 @@ def cancel_request(booking_id: int):
     if booking.passenger_user_id != passenger.id:
         return fail("Not allowed", 403)
 
-    if booking.status not in ("PENDING", "ACCEPTED"):
+    if booking.status not in ("PENDING", "ACCEPTED", "AWAITING_PAYMENT"):
         return fail("Cannot cancel this request", 400)
 
     ride = booking.ride_post
 
-    # If it was accepted, return seats back
     if booking.status == "ACCEPTED":
         ride.seats_available += booking.seats_requested
         if ride.seats_available > 0 and ride.status == "FULL":
             ride.status = "OPEN"
+    # AWAITING_PAYMENT: seats were never reserved yet
 
     booking.status = "CANCELLED"
+    booking.payment_status = "NONE"
+    booking.amount_due_cad = None
     booking.status_updated_at = _now()
     db.session.commit()
 
